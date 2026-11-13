@@ -1,0 +1,6 @@
+{
+  "name": "영상 제작 분기 접수 시스템",
+  "description": "본부, 팀, 담당자 및 대·소분류 기반 자동 소요일 산정 및 분기 가용 제작 일수 실시간 차감 접수 플랫폼",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

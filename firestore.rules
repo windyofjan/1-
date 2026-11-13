@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidVideoRequest(data) {
+      return data.keys().hasAll([
+        'id', 'quarter', 'headquarters', 'team', 'requesterName',
+        'majorCategory', 'subCategory', 'taskName', 'requiredDays',
+        'dueDate', 'status', 'isOverCapacity', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'quarter', 'headquarters', 'team', 'requesterName',
+        'requesterContact', 'majorCategory', 'subCategory', 'taskName',
+        'requiredDays', 'dueDate', 'aspectRatio', 'targetLength',
+        'notes', 'status', 'isOverCapacity', 'overCapacityAmount',
+        'remainingDaysSnapshot', 'assignedStartDate', 'assignedEndDate',
+        'assignedProducer', 'password',
+        'createdAt'
+      ]) &&
+      data.id is string && data.id.size() <= 64 &&
+      data.quarter is string && data.quarter.size() <= 30 &&
+      data.headquarters is string && data.headquarters.size() <= 100 &&
+      data.team is string && data.team.size() <= 100 &&
+      data.requesterName is string && data.requesterName.size() <= 50 &&
+      data.majorCategory is string && data.majorCategory.size() <= 100 &&
+      data.subCategory is string && data.subCategory.size() <= 100 &&
+      data.taskName is string && data.taskName.size() <= 200 &&
+      data.requiredDays is number && data.requiredDays >= 0 && data.requiredDays <= 365 &&
+      data.dueDate is string && data.dueDate.size() <= 30 &&
+      data.status in ['접수완료', '일정협의', '제작승인', '제작진행', '완료', '반려'] &&
+      data.isOverCapacity is bool &&
+      data.createdAt is string && data.createdAt.size() <= 50;
+    }
+
+    function isValidQuarter(data) {
+      return data.keys().hasAll(['id', 'name', 'totalDays', 'startDate', 'endDate']) &&
+      data.keys().hasOnly(['id', 'name', 'totalDays', 'startDate', 'endDate', 'description', 'workingDays', 'multiplier', 'baseCapacityDays', 'totalDeductionDays', 'memberDeductions']) &&
+      data.id is string && data.id.size() <= 30 &&
+      data.name is string && data.name.size() <= 50 &&
+      data.totalDays is number && data.totalDays >= 0 && data.totalDays <= 2000 &&
+      data.startDate is string && data.startDate.size() <= 30 &&
+      data.endDate is string && data.endDate.size() <= 30;
+    }
+
+    // Requests collection (전사 영상제작 분기 접수)
+    match /requests/{requestId} {
+      allow get, list: if true;
+      allow create: if isValidId(requestId) &&
+                      isValidVideoRequest(incoming()) &&
+                      incoming().id == requestId;
+      allow update: if isValidId(requestId) &&
+                      isValidVideoRequest(incoming()) &&
+                      incoming().id == existing().id &&
+                      incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(requestId);
+    }
+
+    // Quarters configuration collection (분기별 가용 CAPA 및 날짜 설정)
+    match /quarters/{quarterId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(quarterId) &&
+                               isValidQuarter(incoming()) &&
+                               incoming().id == quarterId;
+      allow delete: if isValidId(quarterId);
+    }
+
+    // Test connection doc
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+  }
+}

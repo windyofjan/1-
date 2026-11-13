@@ -1,0 +1,200 @@
+{
+  "entities": {
+    "video_request": {
+      "title": "VideoRequest",
+      "description": "영상 제작 분기 접수 신청 항목",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "접수 고유 식별자 (예: REQ-2027-001)",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "quarter": {
+          "type": "string",
+          "description": "해당 분기 식별자 (예: 2027-Q1)",
+          "maxLength": 30
+        },
+        "headquarters": {
+          "type": "string",
+          "description": "의뢰 소속 본부",
+          "maxLength": 100
+        },
+        "team": {
+          "type": "string",
+          "description": "의뢰 소속 팀",
+          "maxLength": 100
+        },
+        "requesterName": {
+          "type": "string",
+          "description": "담당자 성함",
+          "maxLength": 50
+        },
+        "requesterContact": {
+          "type": "string",
+          "description": "담당자 연락처 또는 이메일",
+          "maxLength": 100
+        },
+        "majorCategory": {
+          "type": "string",
+          "description": "영상 목적 대분류",
+          "maxLength": 100
+        },
+        "subCategory": {
+          "type": "string",
+          "description": "세부 작업 소분류",
+          "maxLength": 100
+        },
+        "taskName": {
+          "type": "string",
+          "description": "업무명",
+          "maxLength": 200
+        },
+        "requiredDays": {
+          "type": "number",
+          "description": "대·소분류 기준 산정된 업무 소요일수"
+        },
+        "dueDate": {
+          "type": "string",
+          "description": "희망 납품 마감일 (YYYY-MM-DD)",
+          "maxLength": 30
+        },
+        "aspectRatio": {
+          "type": "string",
+          "description": "화면 비율",
+          "maxLength": 50
+        },
+        "targetLength": {
+          "type": "string",
+          "description": "목표 영상 길이",
+          "maxLength": 50
+        },
+        "notes": {
+          "type": "string",
+          "description": "추가 요청사항 및 참고 링크",
+          "maxLength": 2000
+        },
+        "status": {
+          "type": "string",
+          "description": "진행 상태 (접수완료, 일정협의, 제작승인, 제작진행, 완료, 반려)",
+          "enum": ["접수완료", "일정협의", "제작승인", "제작진행", "완료", "반려"]
+        },
+        "isOverCapacity": {
+          "type": "boolean",
+          "description": "분기 가용 일수 초과 여부"
+        },
+        "overCapacityAmount": {
+          "type": "number",
+          "description": "초과 일수"
+        },
+        "remainingDaysSnapshot": {
+          "type": "number",
+          "description": "접수 시점 잔여 가용 일수"
+        },
+        "assignedStartDate": {
+          "type": "string",
+          "description": "달력 배정 시작일 (YYYY-MM-DD)",
+          "maxLength": 30
+        },
+        "assignedEndDate": {
+          "type": "string",
+          "description": "달력 배정 종료일 (YYYY-MM-DD)",
+          "maxLength": 30
+        },
+        "assignedProducer": {
+          "type": "string",
+          "description": "배정된 제작 담당자 (민규, 신혜, 유진, 승아, 외주 등)",
+          "maxLength": 50
+        },
+        "password": {
+          "type": "string",
+          "description": "작성자 수정용 비밀번호",
+          "maxLength": 50
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "신청 일시 (ISO string)",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "id",
+        "quarter",
+        "headquarters",
+        "team",
+        "requesterName",
+        "majorCategory",
+        "subCategory",
+        "taskName",
+        "requiredDays",
+        "dueDate",
+        "status",
+        "isOverCapacity",
+        "createdAt"
+      ]
+    },
+    "quarter_config": {
+      "title": "QuarterConfig",
+      "description": "분기 제작 가용 일수 및 일정 설정",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "분기 코드 (예: 2027-Q1)",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "분기 표기명",
+          "maxLength": 50
+        },
+        "totalDays": {
+          "type": "number",
+          "description": "분기 총 제작 가능 일수 (기본 60일)"
+        },
+        "startDate": {
+          "type": "string",
+          "description": "분기 시작일 (YYYY-MM-DD)",
+          "maxLength": 30
+        },
+        "endDate": {
+          "type": "string",
+          "description": "분기 종료일 (YYYY-MM-DD)",
+          "maxLength": 30
+        },
+        "workingDays": {
+          "type": "number",
+          "description": "분기 워킹데이 수"
+        },
+        "multiplier": {
+          "type": "number",
+          "description": "가중치 배수"
+        },
+        "memberDeductions": {
+          "type": "array",
+          "description": "인원별 행정업무/휴가 차감 내역"
+        },
+        "description": {
+          "type": "string",
+          "description": "분기 메모",
+          "maxLength": 500
+        }
+      },
+      "required": ["id", "name", "totalDays", "startDate", "endDate"]
+    }
+  },
+  "firestore": {
+    "/requests/{requestId}": {
+      "schema": {
+        "$ref": "#/entities/video_request"
+      },
+      "description": "전사 공유 영상 제작 분기 접수 목록"
+    },
+    "/quarters/{quarterId}": {
+      "schema": {
+        "$ref": "#/entities/quarter_config"
+      },
+      "description": "분기별 총 가용 제작 일수 및 일정 설정"
+    }
+  }
+}
