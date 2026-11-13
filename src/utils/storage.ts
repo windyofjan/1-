@@ -10,13 +10,12 @@ export function getStoredRequests(): VideoRequest[] {
   try {
     const raw = localStorage.getItem(REQUESTS_STORAGE_KEY);
     if (!raw) {
-      localStorage.setItem(REQUESTS_STORAGE_KEY, JSON.stringify(INITIAL_REQUESTS));
-      return INITIAL_REQUESTS;
+      return [];
     }
     return JSON.parse(raw);
   } catch (err) {
     console.error('Failed to load requests from localStorage:', err);
-    return INITIAL_REQUESTS;
+    return [];
   }
 }
 

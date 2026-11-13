@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 
 import { VideoRequest, MajorCategory, QuarterConfig } from './types';
+import { INITIAL_REQUESTS } from './data/mockRequests';
+import { INITIAL_QUARTERS } from './data/categories';
 import {
   getStoredRequests,
   saveRequests,
@@ -26,7 +28,6 @@ import {
   saveQuarters,
   getStoredCategories,
   saveCategories,
-  resetAllData,
   calculateCapacitySummary,
   reconcileOverCapacityRequests,
   exportRequestsToCSV,
@@ -54,6 +55,8 @@ import { AdminCalendarPlanner } from './components/AdminCalendarPlanner';
 export default function App() {
   // State with lazy initializers so data is available on first render
   const [requests, setRequests] = useState<VideoRequest[]>(() => getStoredRequests());
+  const requestsRef = useRef(requests);
+  requestsRef.current = requests;
   const [quarters, setQuarters] = useState<QuarterConfig[]>(() => getStoredQuarters());
   const quartersRef = useRef(quarters);
   quartersRef.current = quarters;
@@ -134,69 +137,56 @@ export default function App() {
 
   // Firebase Setup & Realtime Subscriptions
   useEffect(() => {
-    // 1. Test connection
-    testConnection();
+    let isCancelled = false;
+    let unsubscribeRequests: (() => void) | undefined;
+    let unsubscribeQuarters: (() => void) | undefined;
 
-    // 2. Seed initial data to Firestore if empty
-    seedInitialFirestoreData(requests, quarters);
+    const initFirestore = async () => {
+      // 1. Test connection
+      await testConnection();
 
-    // 3. Realtime requests listener (전사 공유)
-    const unsubscribeRequests = subscribeToRequests(
-      (remoteRequests) => {
-        if (remoteRequests && remoteRequests.length > 0) {
-          setRequests((prev) => {
-            // Merge remote requests with any local unsynced requests
-            const remoteMap = new Map(remoteRequests.map((r) => [r.id, r]));
-            const localOnly = prev.filter((r) => !remoteMap.has(r.id));
+      // 2. Seed initial data to Firestore ONLY if completely empty on first launch
+      await seedInitialFirestoreData(INITIAL_REQUESTS, INITIAL_QUARTERS);
+      if (isCancelled) return;
 
-            // Background sync any local-only requests to Firestore
-            if (localOnly.length > 0) {
-              localOnly.forEach((req) => {
-                saveRequestToFirestore(req).catch(console.error);
-              });
-            }
+      // 3. Realtime requests listener (Firestore is authoritative; handle empty lists too)
+      unsubscribeRequests = subscribeToRequests(
+        (remoteRequests) => {
+          const { updatedRequests, convertedRequests } = reconcileOverCapacityRequests(
+            remoteRequests,
+            quartersRef.current
+          );
 
-            const merged = [...remoteRequests, ...localOnly];
+          if (convertedRequests.length > 0) {
+            convertedRequests.forEach((conv) => {
+              updateRequestInFirestore(conv.id, {
+                isOverCapacity: conv.isOverCapacity,
+                overCapacityAmount: conv.overCapacityAmount ?? 0,
+              }).catch(console.error);
+            });
+          }
 
-            // Automatically reconcile over-capacity status
-            const { updatedRequests, convertedRequests } = reconcileOverCapacityRequests(
-              merged,
-              quartersRef.current
-            );
-
-            // Sync converted or newly marked over-capacity to Firestore
-            if (convertedRequests.length > 0) {
-              convertedRequests.forEach((conv) => {
-                updateRequestInFirestore(conv.id, {
-                  isOverCapacity: conv.isOverCapacity,
-                  overCapacityAmount: conv.overCapacityAmount,
-                }).catch(console.error);
-              });
-            }
-
-            saveRequests(updatedRequests);
-            return updatedRequests;
-          });
+          requestsRef.current = updatedRequests;
+          saveRequests(updatedRequests);
+          setRequests(updatedRequests);
           setIsFirebaseConnected(true);
+        },
+        (err) => {
+          console.warn('Realtime Firestore requests fallback:', err);
+          setIsFirebaseConnected(false);
         }
-      },
-      (err) => {
-        console.warn('Realtime Firestore requests fallback:', err);
-      }
-    );
+      );
 
-    // 4. Realtime quarters listener
-    const unsubscribeQuarters = subscribeToQuarters(
-      (remoteQuarters) => {
-        if (remoteQuarters && remoteQuarters.length > 0) {
-          setQuarters(remoteQuarters);
-          quartersRef.current = remoteQuarters;
-          saveQuarters(remoteQuarters);
+      // 4. Realtime quarters listener
+      unsubscribeQuarters = subscribeToQuarters(
+        (remoteQuarters) => {
+          if (remoteQuarters && remoteQuarters.length > 0) {
+            setQuarters(remoteQuarters);
+            quartersRef.current = remoteQuarters;
+            saveQuarters(remoteQuarters);
 
-          // Reconcile requests against newly loaded quarters
-          setRequests((prev) => {
             const { updatedRequests, convertedRequests } = reconcileOverCapacityRequests(
-              prev,
+              requestsRef.current,
               remoteQuarters
             );
 
@@ -204,24 +194,28 @@ export default function App() {
               convertedRequests.forEach((conv) => {
                 updateRequestInFirestore(conv.id, {
                   isOverCapacity: conv.isOverCapacity,
-                  overCapacityAmount: conv.overCapacityAmount,
+                  overCapacityAmount: conv.overCapacityAmount ?? 0,
                 }).catch(console.error);
               });
             }
 
+            requestsRef.current = updatedRequests;
             saveRequests(updatedRequests);
-            return updatedRequests;
-          });
+            setRequests(updatedRequests);
+          }
+        },
+        (err) => {
+          console.warn('Realtime Firestore quarters fallback:', err);
         }
-      },
-      (err) => {
-        console.warn('Realtime Firestore quarters fallback:', err);
-      }
-    );
+      );
+    };
+
+    initFirestore();
 
     return () => {
-      unsubscribeRequests();
-      unsubscribeQuarters();
+      isCancelled = true;
+      if (unsubscribeRequests) unsubscribeRequests();
+      if (unsubscribeQuarters) unsubscribeQuarters();
     };
   }, []);
 
@@ -324,14 +318,16 @@ export default function App() {
     const rawUpdated = requests.map((r) => (r.id === updatedRequest.id ? updatedRequest : r));
     const { updatedRequests, convertedRequests } = reconcileOverCapacityRequests(
       rawUpdated,
-      quarters
+      quartersRef.current
     );
+    const reconciledTarget =
+      updatedRequests.find((r) => r.id === updatedRequest.id) || updatedRequest;
     setRequests(updatedRequests);
     saveRequests(updatedRequests);
 
     // Sync to Firestore
     try {
-      await updateRequestInFirestore(updatedRequest.id, updatedRequest);
+      await updateRequestInFirestore(reconciledTarget.id, reconciledTarget);
     } catch (e) {
       console.error('Failed to sync updated request to Firestore:', e);
     }
@@ -339,11 +335,11 @@ export default function App() {
     // Sync any other converted requests to Firestore
     if (convertedRequests.length > 0) {
       for (const conv of convertedRequests) {
-        if (conv.id !== updatedRequest.id) {
+        if (conv.id !== reconciledTarget.id) {
           try {
             await updateRequestInFirestore(conv.id, {
-              isOverCapacity: false,
-              overCapacityAmount: 0,
+              isOverCapacity: conv.isOverCapacity,
+              overCapacityAmount: conv.overCapacityAmount ?? 0,
             });
           } catch (e) {
             console.error(`Failed to sync converted request ${conv.id} to Firestore:`, e);
@@ -442,12 +438,13 @@ export default function App() {
 
   // Delete request (Admin Only)
   const handleDeleteRequest = async (id: string) => {
+    const previousRequests = requests;
     const remaining = requests.filter((r) => r.id !== id);
 
     // If deleting frees up capacity, automatically convert over-capacity requests to normal
     const { updatedRequests, convertedRequests } = reconcileOverCapacityRequests(
       remaining,
-      quarters
+      quartersRef.current
     );
 
     setRequests(updatedRequests);
@@ -458,6 +455,10 @@ export default function App() {
       await deleteRequestFromFirestore(id);
     } catch (e) {
       console.error('Failed to sync deletion to Firestore:', e);
+      setRequests(previousRequests);
+      saveRequests(previousRequests);
+      showToast('삭제 중 서버 동기화에 실패했습니다. 잠시 후 다시 시도해 주세요.', 'warning');
+      return;
     }
 
     // Sync converted requests to Firestore
@@ -465,8 +466,8 @@ export default function App() {
       for (const conv of convertedRequests) {
         try {
           await updateRequestInFirestore(conv.id, {
-            isOverCapacity: false,
-            overCapacityAmount: 0,
+            isOverCapacity: conv.isOverCapacity,
+            overCapacityAmount: conv.overCapacityAmount ?? 0,
           });
         } catch (e) {
           console.error(`Failed to sync converted request ${conv.id} to Firestore:`, e);
@@ -603,10 +604,7 @@ export default function App() {
             <section className="space-y-4 pt-4 border-t border-[#181715]/15">
               <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
                 <div>
-                  <span className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#E94B22]">
-                    REQUEST LOG
-                  </span>
-                  <h2 className="text-xl font-extrabold tracking-tight text-[#181715] mt-0.5">
+                  <h2 className="text-xl font-extrabold tracking-tight text-[#181715]">
                     {currentQuarter.name} 영상 제작 접수 목록
                   </h2>
                   <p className="font-mono text-xs text-[#5F5A52] mt-1 tabular-nums">

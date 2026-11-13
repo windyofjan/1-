@@ -9,7 +9,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
-  getDocs,
+  getDocsFromServer,
   writeBatch,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
@@ -277,40 +277,36 @@ export async function saveQuarterToFirestore(quarter: QuarterConfig): Promise<vo
   }
 }
 
-// 7. Initialize Database with default mock data if completely empty on first launch
+// 7. Initialize Database with default mock data ONLY when genuinely empty on first launch
 export async function seedInitialFirestoreData(
   defaultRequests: VideoRequest[],
   defaultQuarters: QuarterConfig[]
 ): Promise<boolean> {
   try {
-    const quartersSnap = await getDocs(collection(db, 'quarters'));
-    const requestsSnap = await getDocs(collection(db, 'requests'));
-
-    const existingReqIds = new Set<string>();
-    requestsSnap.forEach((docSnap) => existingReqIds.add(docSnap.id));
-
-    const existingQuarterIds = new Set<string>();
-    quartersSnap.forEach((docSnap) => existingQuarterIds.add(docSnap.id));
+    const quartersSnap = await getDocsFromServer(collection(db, 'quarters'));
+    const requestsSnap = await getDocsFromServer(collection(db, 'requests'));
 
     const batch = writeBatch(db);
     let shouldCommit = false;
 
-    for (const q of defaultQuarters) {
-      if (!existingQuarterIds.has(q.id)) {
+    if (quartersSnap.empty) {
+      for (const q of defaultQuarters) {
         batch.set(doc(db, 'quarters', q.id), sanitizePayload(q));
         shouldCommit = true;
       }
     }
 
-    for (const r of defaultRequests) {
-      if (!existingReqIds.has(r.id)) {
+    // Seed default requests only if both quarters and requests are completely empty on the server,
+    // ensuring deleted default requests are never re-created on subsequent page loads.
+    if (quartersSnap.empty && requestsSnap.empty) {
+      for (const r of defaultRequests) {
         batch.set(doc(db, 'requests', r.id), sanitizePayload(r));
         shouldCommit = true;
       }
     }
 
     if (shouldCommit) {
-      console.log('Seeding missing default data to Firestore...');
+      console.log('Seeding initial data to fresh Firestore...');
       await batch.commit();
       return true;
     }
